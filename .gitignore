@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 data/
 firmware/config.py
+codigo_inicial/
 *.xlsx
 *.xls
 *.ods
