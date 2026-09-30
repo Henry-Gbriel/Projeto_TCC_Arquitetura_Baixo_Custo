@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TCC ITBI — Painel</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --tx:#1d2330; --mut:#667085; --bd:#dfe3ea; --pri:#2458d6;
+          --ok:#1a8f4c; --warn:#b7791f; --err:#c53030; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12151b; --card:#1b2029; --tx:#e6e9ef; --mut:#98a2b3; --bd:#2c3340; --pri:#6c9bff;
+            --ok:#4cc38a; --warn:#e0a93b; --err:#f07171; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--tx); }
+  header { padding:14px 16px; border-bottom:1px solid var(--bd); display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; }
+  header span { color:var(--mut); }
+  main { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:14px; padding:14px 16px; }
+  section { background:var(--card); border:1px solid var(--bd); border-radius:8px; padding:14px; min-width:0; }
+  section.largo { grid-column:1/-1; }
+  h2 { font-size:14px; margin:0 0 10px; text-transform:uppercase; letter-spacing:.04em; color:var(--mut); }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:5px 6px; border-bottom:1px solid var(--bd); vertical-align:top; }
+  th { color:var(--mut); font-weight:600; }
+  .rolagem { overflow-x:auto; }
+  label { display:block; margin:6px 0 2px; color:var(--mut); font-size:12px; }
+  select, input, button { font:inherit; padding:6px 8px; border:1px solid var(--bd); border-radius:6px;
+                          background:var(--bg); color:var(--tx); max-width:100%; }
+  button { background:var(--pri); color:#fff; border-color:var(--pri); cursor:pointer; }
+  button.sec { background:transparent; color:var(--pri); }
+  button:disabled { opacity:.5; cursor:default; }
+  .linha { display:flex; gap:8px; flex-wrap:wrap; align-items:end; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:99px; font-size:12px; border:1px solid var(--bd); }
+  .ok { color:var(--ok); border-color:var(--ok); } .warn { color:var(--warn); border-color:var(--warn); }
+  .err { color:var(--err); border-color:var(--err); } .mut { color:var(--mut); }
+  .barra { height:10px; background:var(--bd); border-radius:99px; overflow:hidden; margin:6px 0; }
+  .barra > div { height:100%; background:var(--pri); width:0; transition:width .3s; }
+  .lotes { display:flex; flex-wrap:wrap; gap:3px; margin:8px 0; }
+  .lote { width:14px; height:14px; border-radius:3px; background:var(--bd); }
+  .lote.concluido { background:var(--ok); } .lote.processando, .lote.atribuido { background:var(--pri); }
+  .lote.falhou { background:var(--err); }
+  pre { white-space:pre-wrap; word-break:break-word; font-size:12px; background:var(--bg); padding:8px; border-radius:6px; max-height:280px; overflow:auto; }
+  .msg { margin-top:8px; font-size:13px; }
+</style>
+</head>
+<body>
+<header><h1>Framework distribuído — ITBI São Paulo</h1><span id="broker">broker: …</span></header>
+<main>
+  <section>
+    <h2>Nós</h2>
+    <div class="rolagem"><table><thead><tr><th>Nó</th><th>Estado</th><th>Lote</th><th>Mem. livre</th><th>Contato</th></tr></thead>
+    <tbody id="nos"></tbody></table></div>
+  </section>
+
+  <section>
+    <h2>Fontes (Bronze)</h2>
+    <div class="linha">
+      <div><label for="anoColeta">Ano na página oficial</label><select id="anoColeta"></select></div>
+      <button id="btnColetar">Coletar ano</button>
+      <button id="btnColetarTodos" class="sec">Coletar todos</button>
+    </div>
+    <div class="linha" style="margin-top:8px">
+      <div><label for="upload">Ou enviar XLSX</label><input type="file" id="upload" accept=".xlsx"></div>
+      <button id="btnUpload" class="sec">Enviar</button>
+    </div>
+    <div id="msgFonte" class="msg mut"></div>
+  </section>
+
+  <section>
+    <h2>Nova execução</h2>
+    <label for="arquivo">Arquivo / versão</label><select id="arquivo" style="width:100%"></select>
+    <div class="linha">
+      <div><label for="ano">Ano</label><select id="ano"></select></div>
+      <div><label for="mes">Mês</label><select id="mes"><option value="">todos</option></select></div>
+      <div><label for="limite">Limite de registros</label><input id="limite" type="number" min="1" placeholder="sem limite" style="width:130px"></div>
+    </div>
+    <label>Nós</label><div id="escolhaNos" class="linha"></div>
+    <div style="margin-top:10px"><button id="btnExecutar">Iniciar execução</button></div>
+    <div id="msgExec" class="msg mut"></div>
+  </section>
+
+  <section class="largo">
+    <h2>Execuções</h2>
+    <div class="rolagem"><table><thead><tr><th>ID</th><th>Status</th><th>Abas</th><th>Nós</th><th>Progresso</th><th>Criada</th></tr></thead>
+    <tbody id="execucoes"></tbody></table></div>
+  </section>
+
+  <section class="largo" id="detalhe" hidden>
+    <h2 id="detTitulo">Execução</h2>
+    <div id="detResumo"></div>
+    <div class="barra"><div id="detBarra"></div></div>
+    <div class="lotes" id="detLotes"></div>
+    <div class="linha"><button class="sec" id="btnIndicadores">Indicadores (Gold)</button>
+      <button class="sec" id="btnMetricas">Métricas</button><button class="sec" id="btnRegistros">Registros Silver</button>
+      <button class="sec" id="btnRetomar">Retomar lotes falhos</button></div>
+    <pre id="detSaida">Eventos recentes aparecem aqui.</pre>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const MESES = ["JAN","FEV","MAR","ABR","MAI","JUN","JUL","AGO","SET","OUT","NOV","DEZ"];
+let arquivos = [], selecionada = null, saidaFixa = false;
+
+async function api(caminho, opcoes) {
+  const r = await fetch(caminho, opcoes);
+  const corpo = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(corpo.detail ? JSON.stringify(corpo.detail) : r.statusText);
+  return corpo;
+}
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const classe = s => ({concluida:"ok",disponivel:"ok",em_andamento:"warn",preparando:"warn",processando:"warn",
+  falhou:"err",offline:"err",nunca_conectado:"mut"}[s] || "mut");
+
+async function atualizarNos() {
+  try {
+    const d = await api("/nos");
+    $("broker").textContent = "broker: " + (d.broker_conectado ? "conectado" : "desconectado");
+    $("nos").innerHTML = d.nos.map(n => `<tr><td>${esc(n.no_id)}${n.simulado ? ' <span class="pill mut">sim</span>' : ""}</td>
+      <td><span class="pill ${classe(n.estado)}">${esc(n.estado)}</span></td><td>${esc(n.lote_atual || "—")}</td>
+      <td>${n.mem_livre ?? "—"}</td><td>${n.segundos_sem_contato != null ? Math.round(n.segundos_sem_contato) + " s" : "—"}</td></tr>`).join("");
+    const marcados = new Set([...document.querySelectorAll("#escolhaNos input:checked")].map(i => i.value));
+    const primeira = !$("escolhaNos").children.length;
+    $("escolhaNos").innerHTML = d.nos.map(n => `<label style="color:inherit"><input type="checkbox" value="${esc(n.no_id)}"
+      ${(primeira ? !n.simulado : marcados.has(n.no_id)) ? "checked" : ""}> ${esc(n.no_id)}</label>`).join("");
+  } catch (e) { $("broker").textContent = "API indisponível"; }
+}
+
+async function carregarFontes() {
+  try {
+    const d = await api("/fontes/itbi-sp/anos");
+    $("anoColeta").innerHTML = d.anos.filter(a => a.na_pagina).map(a =>
+      `<option value="${a.ano}">${a.ano}${a.versoes_bronze.length ? " ✓" : ""}</option>`).join("");
+    if (d.erro_fonte) $("msgFonte").textContent = "Página oficial indisponível: " + d.erro_fonte;
+  } catch (e) { $("msgFonte").textContent = e.message; }
+  arquivos = await api("/arquivos");
+  $("arquivo").innerHTML = arquivos.map(a => `<option value="${a.id}">#${a.id} · ${a.ano_fonte ?? "?"} · ${esc(a.nome_original)} · ${a.coletado_em.slice(0,10)}</option>`).join("");
+  preencherAnos();
+}
+
+function preencherAnos() {
+  const a = arquivos.find(x => x.id == $("arquivo").value);
+  const abas = a ? a.meses_disponiveis : [];
+  const anos = [...new Set(abas.map(x => x.split("-")[1]))].sort().reverse();
+  $("ano").innerHTML = anos.map(x => `<option>${x}</option>`).join("");
+  preencherMeses();
+}
+function preencherMeses() {
+  const a = arquivos.find(x => x.id == $("arquivo").value);
+  const meses = (a ? a.meses_disponiveis : []).filter(x => x.endsWith("-" + $("ano").value)).map(x => x.split("-")[0]);
+  $("mes").innerHTML = '<option value="">todos</option>' + MESES.filter(m => meses.includes(m)).map(m => `<option>${m}</option>`).join("");
+}
+
+async function atualizarExecucoes() {
+  const lista = await api("/execucoes");
+  $("execucoes").innerHTML = lista.map(e => `<tr style="cursor:pointer" data-id="${e.id}">
+    <td><a href="#" data-id="${e.id}">${e.id}</a></td><td><span class="pill ${classe(e.status)}">${e.status}</span></td>
+    <td>${esc(e.abas_selecionadas.join(", "))}</td><td>${esc(e.nos.join(", "))}</td>
+    <td>${e.processados}/${e.total_esperado ?? "…"}</td><td>${e.criado_em.slice(0,19).replace("T"," ")}</td></tr>`).join("");
+  if (selecionada) atualizarDetalhe();
+}
+
+async function atualizarDetalhe() {
+  const d = await api(`/execucoes/${selecionada}`);
+  $("detalhe").hidden = false;
+  $("detTitulo").textContent = `Execução ${d.id}`;
+  $("detResumo").innerHTML = `<span class="pill ${classe(d.status)}">${d.status}</span>
+    ${d.processados}/${d.total_esperado ?? "…"} registros · ${d.com_erro} com erro de campo · ${d.erros_leitura} erros de leitura
+    ${d.mensagem ? `<div class="err">${esc(d.mensagem)}</div>` : ""}`;
+  $("detBarra").style.width = (d.progresso * 100) + "%";
+  $("detLotes").innerHTML = d.lotes.map(l => `<div class="lote ${l.estado}" title="${l.id} · ${l.estado} · ${l.no_id || ""} · ${l.feitos}/${l.total} · tent. ${l.tentativas}"></div>`).join("");
+  if (!saidaFixa) $("detSaida").textContent = d.eventos_recentes.map(e =>
+    `${e.criado_em.slice(11,19)} ${e.tipo} ${e.lote_id || ""} ${e.no_id || ""} ${JSON.stringify(e.detalhe)}`).join("\n");
+}
+
+async function mostrar(caminho) {
+  saidaFixa = true;
+  try { $("detSaida").textContent = JSON.stringify(await api(caminho), null, 1); }
+  catch (e) { $("detSaida").textContent = e.message; }
+}
+
+$("arquivo").onchange = preencherAnos;
+$("ano").onchange = preencherMeses;
+$("execucoes").onclick = ev => {
+  const id = ev.target.closest("[data-id]")?.dataset.id;
+  if (id) { ev.preventDefault(); selecionada = id; saidaFixa = false; atualizarDetalhe(); }
+};
+$("btnIndicadores").onclick = () => mostrar(`/execucoes/${selecionada}/indicadores`);
+$("btnMetricas").onclick = () => mostrar(`/execucoes/${selecionada}/metricas`);
+$("btnRegistros").onclick = () => mostrar(`/execucoes/${selecionada}/registros?por_pagina=10`);
+$("btnRetomar").onclick = async () => { await api(`/execucoes/${selecionada}/retomar`, {method:"POST"}); saidaFixa = false; atualizarDetalhe(); };
+
+async function acompanharColeta(id) {
+  const c = await api(`/coletas/${id}`);
+  $("msgFonte").textContent = `Coleta ${id}: ${c.status} — ` + Object.entries(c.progresso).map(([a, p]) => `${a}: ${p.status}`).join(", ");
+  if (c.status === "em_andamento") setTimeout(() => acompanharColeta(id), 2000); else carregarFontes();
+}
+async function coletar(corpo) {
+  try {
+    const r = await api("/coletas/itbi-sp", {method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(corpo)});
+    acompanharColeta(r.coleta_id);
+  } catch (e) { $("msgFonte").textContent = e.message; }
+}
+$("btnColetar").onclick = () => coletar({ano: Number($("anoColeta").value)});
+$("btnColetarTodos").onclick = () => confirm("Baixar os arquivos de todos os anos?") && coletar({todos: true});
+$("btnUpload").onclick = async () => {
+  const f = $("upload").files[0]; if (!f) return;
+  const fd = new FormData(); fd.append("arquivo", f);
+  $("msgFonte").textContent = "Enviando…";
+  try { const r = await api("/arquivos", {method:"POST", body:fd});
+        $("msgFonte").textContent = (r.novo ? "Arquivo preservado: #" : "Já existia (mesmo SHA-256): #") + r.arquivo.id; carregarFontes(); }
+  catch (e) { $("msgFonte").textContent = e.message; }
+};
+$("btnExecutar").onclick = async () => {
+  const nos = [...document.querySelectorAll("#escolhaNos input:checked")].map(i => i.value);
+  const corpo = {arquivo_id:Number($("arquivo").value), ano:Number($("ano").value), mes:$("mes").value || null,
+                 limite_registros:$("limite").value ? Number($("limite").value) : null, nos};
+  try { const r = await api("/execucoes", {method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(corpo)});
+        $("msgExec").textContent = `Criada ${r.execucao_id} (${r.abas.join(", ")})`; selecionada = r.execucao_id; saidaFixa = false; atualizarExecucoes(); }
+  catch (e) { $("msgExec").textContent = e.message; }
+};
+
+atualizarNos(); carregarFontes().then(atualizarExecucoes);
+setInterval(atualizarNos, 3000); setInterval(atualizarExecucoes, 2000);
+</script>
+</body>
+</html>

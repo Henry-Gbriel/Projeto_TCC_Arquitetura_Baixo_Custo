@@ -1,0 +1,1 @@
+{ "extraPaths": ["api", "firmware", "scripts"], "venvPath": ".", "venv": ".venv" }

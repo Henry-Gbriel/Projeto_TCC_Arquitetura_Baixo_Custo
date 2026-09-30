@@ -1,0 +1,29 @@
+# Serviços de apoio do TCC: PostgreSQL (Silver/controle) e Mosquitto (MQTT).
+# Portas do host configuráveis no .env (padrão 5434 e 1884 para não colidir com outros projetos).
+services:
+  postgres:
+    image: postgres:16
+    container_name: tcc-postgres
+    environment:
+      POSTGRES_DB: ${PG_DB:-tcc_itbi}
+      POSTGRES_USER: ${PG_USER:-tcc}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?defina PG_PASSWORD no .env}
+    ports:
+      - "${PG_PORTA:-5434}:5432"
+    volumes:
+      - tcc_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-tcc} -d ${PG_DB:-tcc_itbi}"]
+      interval: 5s
+      retries: 10
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: tcc-mosquitto
+    ports:
+      - "${MQTT_PORTA:-1884}:1883"
+    volumes:
+      - ./infra/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+volumes:
+  tcc_pgdata:
