@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
 
-from . import config, db
+from . import config, db, gold
 from .canonico import COLUNAS
 
 log = logging.getLogger("orquestrador")
@@ -35,6 +35,7 @@ class Orquestrador:
         self._parar = threading.Event()
         self._thread: threading.Thread | None = None
         self.conectado = False
+        self.gold_desatualizada = False         # alguma execução concluiu desde a última atualização
         p = config.MQTT_PREFIXO
         self.topico_tarefa = p + "/nos/{}/tarefa"
         self.topico_resultados = p + "/resultados"
@@ -155,6 +156,9 @@ class Orquestrador:
             self._verificar_nos_silenciosos(conn)
             if self.conectado:
                 self._distribuir(conn)
+        if self.gold_desatualizada:  # depois do commit, para a atualização enxergar a execução concluída
+            self.gold_desatualizada = False
+            gold.atualizar_transacoes_em_segundo_plano()
 
     def _distribuir(self, conn) -> None:
         execucoes = conn.execute(
@@ -288,6 +292,7 @@ class Orquestrador:
         if r["feitos"] == r["total_esperado"]:
             conn.execute("UPDATE execucoes SET status='concluida', concluido_em=now() WHERE id=%s", (exec_id,))
             db.evento(conn, "execucao_concluida", exec_id, registros=r["feitos"])
+            self.gold_desatualizada = True
         elif r["abertos"] == 0 and r["falhos"] > 0:
             conn.execute("UPDATE execucoes SET status='falhou', mensagem=%s WHERE id=%s",
                          (f"{r['falhos']} lote(s) falharam após {config.MAX_TENTATIVAS_LOTE} tentativas; "

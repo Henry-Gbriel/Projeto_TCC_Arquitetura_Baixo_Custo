@@ -142,5 +142,3 @@ SELECT
     jsonb_array_length(s.erros)                            AS qtd_erros
 FROM registros_silver s
 JOIN registros_origem o ON o.id = s.registro_origem_id;
-
-CREATE TABLE IF NOT EXISTS migracoes (nome TEXT PRIMARY KEY, aplicada_em TIMESTAMPTZ NOT NULL DEFAULT now());

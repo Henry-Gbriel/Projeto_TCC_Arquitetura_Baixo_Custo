@@ -14,9 +14,11 @@ api/app/
   coleta.py        descoberta dos anos na página oficial e download com redirecionamentos explícitos
   execucoes.py     seleção de abas, leitura e montagem de lotes de 10
   orquestrador.py  MQTT, distribuição, timeouts, reenvio, reatribuição, idempotência, recuperação
-  gold.py          indicadores e métricas do experimento
-  main.py          rotas da API; static/index.html é o painel web
-  migrations/      esquema PostgreSQL
+  gold.py          indicadores, métricas, consulta pública do preço do m² e status do cluster
+  auth.py          login do painel (usuários no Postgres, scrypt, cookie assinado)
+  main.py          rotas da API; serve o build do front-end em /
+api/migracoes/    migrações Alembic do PostgreSQL (SQL puro; alembic.ini na raiz)
+frontend/          site "quadra" (React + Vite + TypeScript + Recharts), telas de documento/v1/project-fron-end
 firmware/          MicroPython do ESP32: main.py, regras.py, tela.py (OLED), config_exemplo.py
 scripts/           extrair_fixtures.py, simulador_no.py (testes sem hardware)
 tests/             regras, leitor, integração (Postgres+Mosquitto), MicroPython real via Docker
@@ -31,8 +33,16 @@ docker compose up -d            # PostgreSQL :5434 e Mosquitto :1884 (portas do 
 .venv/bin/uvicorn app.main:app --app-dir api --host 0.0.0.0 --port 8010
 ```
 
-Use **um único worker**: o orquestrador vive no processo da API. Painel: <http://localhost:8010/>,
-documentação interativa: <http://localhost:8010/docs>. As migrações rodam na inicialização.
+Front-end (uma vez, e de novo a cada mudança em `frontend/`):
+
+```bash
+cd frontend && npm install && npm run build      # gera frontend/dist, servido pela API em /
+.venv/bin/python scripts/criar_usuario.py admin   # usuário do painel (ou ADMIN_USUARIO/ADMIN_SENHA no .env)
+```
+
+Use **um único worker**: o orquestrador vive no processo da API. Site: <http://localhost:8010/>,
+documentação interativa: <http://localhost:8010/docs>. As migrações (Alembic) rodam na inicialização;
+pela linha de comando: `.venv/bin/alembic upgrade head` / `.venv/bin/alembic current`.
 
 Fluxo típico:
 
@@ -42,6 +52,28 @@ Fluxo típico:
    responde na hora com o ID; acompanhe em `GET /execucoes/{id}`.
 3. `GET /execucoes/{id}/registros` (Silver, lado a lado com o bruto), `/indicadores` (Gold), `/metricas`.
 4. `GET /nos` mostra conectividade e lote atual de cada nó.
+
+## Front-end e painel de controle
+
+| Rota | Tela | Acesso |
+| --- | --- | --- |
+| `#/` | Página inicial, com um exemplo calculado ao vivo | público |
+| `#/consulta` → `#/resultado` | Busca com filtros e resultado (preço do m², variação, série trimestral, tipos, ruas, CSV) | público |
+| `#/cluster` | Sala das máquinas: nós, fila, vazão e log (`GET /cluster`, a cada 2 s) | público |
+| `#/sobre` | Componentes, tecnologias, equipe (textos em `frontend/src/conteudo.ts`) | público |
+| `#/login` → `#/painel` | Coleta, upload, execuções, lotes, indicadores, métricas, registros | **login** |
+
+As rotas que alteram dados ou mostram a operação (`/arquivos`, `/fontes`, `/coletas`, `/execucoes/*`,
+`/gold/atualizar`) exigem a sessão do painel (cookie HttpOnly assinado; defina `SESSAO_SEGREDO` no `.env`
+para a sessão sobreviver a reinícios). `/consulta/*`, `/cluster` e `/nos` são abertas e só leem.
+
+A consulta usa a view materializada `gold_transacoes` (migração 0003): compras e vendas deduplicadas
+entre execuções, área ≥ 10 m² e preço entre R$ 500 e R$ 60.000/m². Ela é recalculada sozinha quando uma
+execução conclui (ou pelo botão "Recalcular Gold" no painel). O período conta a partir da transação mais
+recente do recorte, e a variação em 12 meses só aparece com pelo menos 10 transações em cada ano.
+
+Desenvolvimento do front com recarga automática: `cd frontend && npm run dev` (porta 5173, chamadas
+encaminhadas para a API em :8010).
 
 ## Firmware (ESP32 + SSD1306)
 

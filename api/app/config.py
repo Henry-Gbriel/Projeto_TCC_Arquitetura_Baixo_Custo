@@ -62,3 +62,15 @@ HTTP_TIMEOUT_S = float(os.environ.get("HTTP_TIMEOUT_S", "60"))
 
 # Desliga o orquestrador MQTT (útil em testes que só usam leitura/API).
 ORQUESTRADOR_ATIVO = os.environ.get("ORQUESTRADOR_ATIVO", "1") == "1"
+
+# Login do painel de controle. Sem SESSAO_SEGREDO, um segredo aleatório é gerado a cada início da API
+# (as sessões caem quando ela reinicia). ADMIN_USUARIO/ADMIN_SENHA criam o primeiro usuário se não houver nenhum.
+SESSAO_SEGREDO = os.environ.get("SESSAO_SEGREDO") or None
+SESSAO_HORAS = float(os.environ.get("SESSAO_HORAS", "12"))
+# Só envia o cookie por HTTPS. Deixe 0 enquanto a API roda em http://localhost ou na rede do laboratório.
+COOKIE_SEGURO = os.environ.get("COOKIE_SEGURO", "0") == "1"
+ADMIN_USUARIO = os.environ.get("ADMIN_USUARIO") or None
+ADMIN_SENHA = os.environ.get("ADMIN_SENHA") or None
+
+# Consultas públicas com menos transações que isto mostram aviso de amostra pequena.
+AMOSTRA_MINIMA = int(os.environ.get("AMOSTRA_MINIMA", "30"))

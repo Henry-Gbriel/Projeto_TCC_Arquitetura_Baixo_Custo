@@ -6,22 +6,26 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from typing import Literal
+
+from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Query, Response, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
-from . import bronze, coleta, config, db, execucoes, gold
+from . import auth, bronze, coleta, config, db, execucoes, gold
 from .orquestrador import Orquestrador
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 orquestrador: Orquestrador | None = None
-ESTATICO = Path(__file__).parent / "static"
+FRONT = config.RAIZ / "frontend" / "dist"   # build do front-end (cd frontend && npm run build)
 
 
 @asynccontextmanager
 async def ciclo_de_vida(app: FastAPI):
     global orquestrador
     db.migrar()
+    auth.preparar()
     bronze.reanalisar_abas_pendentes()
     if config.ORQUESTRADOR_ATIVO:
         orquestrador = Orquestrador()
@@ -37,13 +41,87 @@ app = FastAPI(title="TCC — Framework distribuído de baixo custo (ITBI-SP)", v
               lifespan=ciclo_de_vida)
 
 
+# Rotas do painel de controle: todas exigem login. A consulta pública e o cluster ficam em `app`.
+painel = APIRouter(dependencies=[Depends(auth.exigir_login)])
+
+
 @app.get("/", include_in_schema=False)
 def interface():
-    return FileResponse(ESTATICO / "index.html")
+    if not (FRONT / "index.html").is_file():
+        return HTMLResponse("<p>Front-end não compilado: rode <code>npm install && npm run build</code> "
+                            "na pasta <code>frontend/</code>. A API está em <a href='/docs'>/docs</a>.</p>", 503)
+    return FileResponse(FRONT / "index.html")
+
+
+
+
+# ---------------------------------------------------------------- login
+class PedidoLogin(BaseModel):
+    usuario: str = Field(min_length=1, max_length=100)
+    senha: str = Field(min_length=1, max_length=200)
+
+
+@app.post("/auth/login")
+def login(pedido: PedidoLogin, resposta: Response):
+    if auth.bloqueado(pedido.usuario):
+        raise HTTPException(429, "Muitas tentativas. Aguarde alguns minutos.")
+    u = auth.autenticar(pedido.usuario, pedido.senha)
+    if not u:
+        raise HTTPException(401, "Usuário ou senha incorretos")
+    resposta.set_cookie(auth.COOKIE, auth.criar_token(u["usuario"]), max_age=int(config.SESSAO_HORAS * 3600),
+                        httponly=True, samesite="strict", secure=config.COOKIE_SEGURO)
+    return u
+
+
+@app.post("/auth/logout")
+def logout(resposta: Response):
+    resposta.delete_cookie(auth.COOKIE)
+    return {"ok": True}
+
+
+@app.get("/auth/eu")
+def eu(usuario: dict = Depends(auth.exigir_login)):
+    return usuario
+
+
+# ---------------------------------------------------------------- consulta pública (Gold)
+@app.get("/consulta/bairros")
+def consulta_bairros(q: str = Query("", max_length=80)):
+    return gold.bairros(q)
+
+
+@app.get("/consulta/ruas")
+def consulta_ruas(q: str = Query("", max_length=80), bairro: str | None = Query(None, max_length=80)):
+    return gold.ruas(bairro, q)
+
+
+@app.get("/consulta/preco-m2")
+def consulta_preco_m2(bairro: str | None = Query(None, max_length=80), rua: str | None = Query(None, max_length=120),
+                      tipo: Literal["apartamento", "casa", "comercial", "terreno"] = "apartamento",
+                      area_min: float | None = Query(None, ge=0), area_max: float | None = Query(None, ge=0),
+                      periodo: Literal["12m", "3a", "5a", "tudo"] = "tudo"):
+    """Preço do m² do recorte, variação em 12 meses, série trimestral, tipos e ruas, contra a cidade toda."""
+    return gold.consulta_preco(bairro, rua, tipo, area_min, area_max, periodo)
+
+
+@app.get("/cluster")
+def estado_cluster():
+    """Totais do Silver, situação de cada nó, execução atual e log recente (somente leitura)."""
+    disponiveis = {n for n in config.NOS_PADRAO if orquestrador and orquestrador.no_disponivel(n)}
+    if orquestrador:
+        disponiveis |= {n for n in orquestrador.nos if orquestrador.no_disponivel(n)}
+    return gold.cluster(bool(orquestrador and orquestrador.conectado), disponiveis)
+
+
+@painel.post("/gold/atualizar", status_code=202)
+def atualizar_gold():
+    """Recalcula gold_transacoes (a API já faz isso sozinha quando uma execução conclui)."""
+    gold.atualizar_transacoes_em_segundo_plano()
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------- Bronze e coleta
-@app.post("/arquivos", status_code=201)
+@painel.post("/arquivos", status_code=201)
 def enviar_arquivo(arquivo: UploadFile = File(...), ano_fonte: int | None = Form(None)):
     """Registra um XLSX enviado e o preserva sem alteração em data/bronze/."""
     temp = bronze.salvar_stream(arquivo.file)
@@ -51,14 +129,14 @@ def enviar_arquivo(arquivo: UploadFile = File(...), ano_fonte: int | None = Form
     return {"novo": novo, "arquivo": bronze.resumo(linha)}
 
 
-@app.get("/arquivos")
+@painel.get("/arquivos")
 def listar_arquivos():
     with db.conexao() as conn:
         linhas = conn.execute("SELECT * FROM arquivos_bronze ORDER BY ano_fonte DESC NULLS LAST, coletado_em DESC")
         return [bronze.resumo(l) for l in linhas]
 
 
-@app.get("/fontes/itbi-sp/anos")
+@painel.get("/fontes/itbi-sp/anos")
 def anos_disponiveis(atualizar: bool = False):
     """Anos descobertos na página oficial e versões já preservadas em Bronze."""
     try:
@@ -91,7 +169,7 @@ class PedidoColeta(BaseModel):
         return self
 
 
-@app.post("/coletas/itbi-sp", status_code=202)
+@painel.post("/coletas/itbi-sp", status_code=202)
 def coletar(pedido: PedidoColeta):
     """Baixa o Excel de um ano (ou de todos) para Bronze. Não inicia processamento."""
     try:
@@ -101,7 +179,7 @@ def coletar(pedido: PedidoColeta):
     return {"coleta_id": coleta_id, "acompanhar": f"/coletas/{coleta_id}"}
 
 
-@app.get("/coletas/{coleta_id}")
+@painel.get("/coletas/{coleta_id}")
 def estado_coleta(coleta_id: int):
     with db.conexao() as conn:
         c = conn.execute("SELECT * FROM coletas WHERE id=%s", (coleta_id,)).fetchone()
@@ -119,7 +197,7 @@ class PedidoExecucao(BaseModel):
     nos: list[str] | None = Field(None, description="Subconjunto de nós (padrão: NOS_PADRAO)")
 
 
-@app.post("/execucoes", status_code=202)
+@painel.post("/execucoes", status_code=202)
 def criar_execucao(pedido: PedidoExecucao):
     """Cria a execução e retorna imediatamente; acompanhe em GET /execucoes/{id}."""
     try:
@@ -132,7 +210,7 @@ def criar_execucao(pedido: PedidoExecucao):
             "acompanhar": f"/execucoes/{ex['id']}"}
 
 
-@app.get("/execucoes")
+@painel.get("/execucoes")
 def listar_execucoes(limite: int = Query(20, le=200)):
     with db.conexao() as conn:
         return conn.execute(
@@ -140,7 +218,7 @@ def listar_execucoes(limite: int = Query(20, le=200)):
                FROM execucoes e ORDER BY criado_em DESC LIMIT %s""", (limite,)).fetchall()
 
 
-@app.get("/execucoes/{exec_id}")
+@painel.get("/execucoes/{exec_id}")
 def estado_execucao(exec_id: str, eventos: int = Query(30, le=500)):
     with db.conexao() as conn:
         ex = conn.execute("SELECT * FROM execucoes WHERE id=%s", (exec_id,)).fetchone()
@@ -171,7 +249,7 @@ def estado_execucao(exec_id: str, eventos: int = Query(30, le=500)):
             "lotes": lotes, "eventos_recentes": ultimos}
 
 
-@app.post("/execucoes/{exec_id}/retomar")
+@painel.post("/execucoes/{exec_id}/retomar")
 def retomar_execucao(exec_id: str):
     """Devolve lotes que falharam para pendente (novas tentativas) e reabre a execução."""
     with db.conexao() as conn:
@@ -185,7 +263,7 @@ def retomar_execucao(exec_id: str):
     return {"lotes_reabertos": n}
 
 
-@app.get("/execucoes/{exec_id}/registros")
+@painel.get("/execucoes/{exec_id}/registros")
 def registros_silver(exec_id: str, pagina: int = Query(1, ge=1), por_pagina: int = Query(50, ge=1, le=500),
                      somente_erros: bool = False):
     """Resultados Silver paginados, lado a lado com o registro bruto de origem."""
@@ -203,12 +281,12 @@ def registros_silver(exec_id: str, pagina: int = Query(1, ge=1), por_pagina: int
     return {"total": total, "pagina": pagina, "por_pagina": por_pagina, "itens": itens}
 
 
-@app.get("/execucoes/{exec_id}/indicadores")
+@painel.get("/execucoes/{exec_id}/indicadores")
 def indicadores(exec_id: str):
     return gold.indicadores(exec_id)
 
 
-@app.get("/execucoes/{exec_id}/metricas")
+@painel.get("/execucoes/{exec_id}/metricas")
 def metricas(exec_id: str):
     return gold.metricas(exec_id)
 
@@ -227,3 +305,10 @@ def listar_nos():
     for l in linhas:
         l["disponivel"] = bool(orquestrador and orquestrador.no_disponivel(l["no_id"]))
     return {"broker_conectado": bool(orquestrador and orquestrador.conectado), "nos": linhas}
+
+
+app.include_router(painel)
+
+# Por último: tudo que nenhuma rota da API atendeu sai do build do front (assets/, fotos/, downloads/...).
+# check_dir=False: um `npm run build` feito com a API já no ar passa a valer sem reiniciá-la.
+app.mount("/", StaticFiles(directory=FRONT, check_dir=False), name="front")

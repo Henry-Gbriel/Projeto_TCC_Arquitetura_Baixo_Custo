@@ -87,8 +87,9 @@ Projeto_TCC/
 │   ├── gold.py              indicadores (Gold) e métricas do experimento
 │   ├── db.py                pool de conexões, migrações, registro de eventos
 │   ├── main.py              rotas da API
-│   ├── migrations/001_inicial.sql   esquema do banco
 │   └── static/index.html    painel web
+│
+├── api/migracoes/           migrações Alembic (env.py, versions/0001_inicial.sql ...)
 ├── firmware/
 │   ├── boot.py              inicialização mínima do ESP32
 │   ├── main.py              laço principal do nó (Wi-Fi, MQTT, processamento)
@@ -567,8 +568,9 @@ Uma execução só vira `concluida` quando **todos** os registros esperados têm
 
 ## 10. Banco de dados PostgreSQL
 
-Esquema em `api/app/migrations/001_inicial.sql`, aplicado automaticamente na inicialização
-(`db.migrar()`, com trava `pg_advisory_lock` e controle na tabela `migracoes`).
+Migrações com **Alembic** em `api/migracoes/` (SQL puro, sem ORM; `alembic.ini` na raiz). O esquema
+base está em `versions/0001_inicial.sql`. São aplicadas automaticamente na inicialização (`db.migrar()`
+= `alembic upgrade head`, com trava `pg_advisory_lock`); a versão aplicada fica em `alembic_version`.
 
 | Tabela | Conteúdo | Chaves / restrições |
 | --- | --- | --- |

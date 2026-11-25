@@ -1,14 +1,15 @@
 """Acesso ao PostgreSQL (psycopg 3 + pool)."""
 from contextlib import contextmanager
-from pathlib import Path
 
+from alembic import command
+from alembic.config import Config as AlembicConfig
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
 from . import config
 
-MIGRACOES = Path(__file__).parent / "migrations"
+ALEMBIC_INI = config.RAIZ / "alembic.ini"
 _pool: ConnectionPool | None = None
 
 
@@ -34,24 +35,11 @@ def conexao():
         yield conn
 
 
-def migrar() -> list[str]:
-    aplicadas = []
-    with conexao() as conn:
-        conn.execute("SELECT pg_advisory_lock(424242)")
-        try:
-            conn.execute("CREATE TABLE IF NOT EXISTS migracoes (nome TEXT PRIMARY KEY, "
-                         "aplicada_em TIMESTAMPTZ NOT NULL DEFAULT now())")
-            feitas = {r["nome"] for r in conn.execute("SELECT nome FROM migracoes")}
-            for arq in sorted(MIGRACOES.glob("*.sql")):
-                if arq.name in feitas:
-                    continue
-                conn.execute(arq.read_text(encoding="utf-8"))
-                conn.execute("INSERT INTO migracoes (nome) VALUES (%s)", (arq.name,))
-                aplicadas.append(arq.name)
-            conn.commit()
-        finally:
-            conn.execute("SELECT pg_advisory_unlock(424242)")
-    return aplicadas
+def migrar() -> None:
+    """Aplica as revisões pendentes do Alembic (api/migracoes), como `alembic upgrade head`."""
+    cfg = AlembicConfig(str(ALEMBIC_INI))
+    cfg.attributes["configurar_logging"] = False  # não sobrescreve o logging da API
+    command.upgrade(cfg, "head")
 
 
 def evento(conn, tipo: str, execucao_id=None, lote_id=None, no_id=None, **detalhe) -> None:
