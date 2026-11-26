@@ -276,6 +276,11 @@ def cluster(broker_conectado: bool, disponiveis: set[str]) -> dict:
         log_eventos = conn.execute(
             """SELECT id, criado_em, tipo, execucao_id, lote_id, no_id, detalhe FROM eventos_execucao
                WHERE tipo <> 'resposta_duplicada' ORDER BY id DESC LIMIT 40""").fetchall()
+        recentes = conn.execute(
+            """SELECT s.id, s.recebido_em, s.no_id, s.lote_id, o.posicao, o.aba, o.linha, s.duracao_no_us,
+                      s.erros, o.dados, s.dados_tratados
+               FROM registros_silver s JOIN registros_origem o ON o.id = s.registro_origem_id
+               ORDER BY s.id DESC LIMIT 14""").fetchall()
     conhecidos = {n["no_id"] for n in nos}
     nos += [{"no_id": no_id, "estado": "nunca_conectado", "lotes_processados": 0, "registros": 0}
             for no_id in config.NOS_PADRAO if no_id not in conhecidos]
@@ -286,4 +291,22 @@ def cluster(broker_conectado: bool, disponiveis: set[str]) -> dict:
             "taxa_erro": round(totais["com_erro"] / totais["registros"], 4) if totais["registros"] else 0.0,
             "vazao_reg_s": round(totais["ultimo_minuto"] / 60, 2),
             "nos_ativos": sum(n["disponivel"] for n in nos), "nos": nos,
-            "execucao": execucao, "log": log_eventos}
+            "execucao": execucao, "log": log_eventos, "esteira": [_item_esteira(r) for r in recentes]}
+
+
+def _texto(v) -> str | None:
+    return None if v is None else str(v)
+
+
+def _item_esteira(r: dict) -> dict:
+    """Um registro já devolvido por um nó: identificação curta e os campos que a limpeza alterou."""
+    bruto, tratado = r["dados"] or {}, r["dados_tratados"] or {}
+    mudancas = [{"campo": k, "antes": _texto(bruto.get(k)), "depois": _texto(tratado.get(k))}
+                for k in bruto if _texto(bruto.get(k)) != _texto(tratado.get(k))]
+    return {"id": r["id"], "recebido_em": r["recebido_em"], "no_id": r["no_id"], "lote_id": r["lote_id"],
+            "posicao": r["posicao"], "aba": r["aba"], "linha": r["linha"], "duracao_us": r["duracao_no_us"],
+            "logradouro": tratado.get("logradouro") or bruto.get("logradouro"),
+            "numero": tratado.get("numero") or bruto.get("numero"),
+            "bairro": tratado.get("bairro") or bruto.get("bairro"),
+            "valor_transacao": _texto(tratado.get("valor_transacao")),
+            "mudancas": mudancas, "erros": r["erros"] or []}

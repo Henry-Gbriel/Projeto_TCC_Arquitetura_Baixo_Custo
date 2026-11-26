@@ -135,6 +135,25 @@ export interface EstadoCluster {
     processados: number;
   };
   log: EventoLog[];
+  esteira: ItemEsteira[];
+}
+
+/** Registro recém-devolvido por um nó, com os campos que a limpeza alterou. */
+export interface ItemEsteira {
+  id: number;
+  recebido_em: string;
+  no_id: string;
+  lote_id: string;
+  posicao: number;
+  aba: string;
+  linha: number;
+  duracao_us: number | null;
+  logradouro: string | null;
+  numero: string | null;
+  bairro: string | null;
+  valor_transacao: string | null;
+  mudancas: { campo: string; antes: string | null; depois: string | null }[];
+  erros: { campo: string; motivo: string; valor_original?: unknown }[];
 }
 
 // ---------------------------------------------------------------- painel

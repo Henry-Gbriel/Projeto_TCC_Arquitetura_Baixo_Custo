@@ -46,6 +46,7 @@ export default function Painel() {
   return (
     <>
       <Topo
+        entrar={false}
         links={[["Site", "/"], ["Cluster ao vivo", "/cluster"], ["Consulta", "/consulta"]]}
         acao={<>
           <span className="suave" style={{ fontSize: 14 }}>{eu.nome || eu.usuario}</span>
@@ -98,7 +99,7 @@ function Conteudo({ chamar }: { chamar: Chamar }) {
         </div>
       </div>
 
-      <div className="grade g-2" style={{ alignItems: "start" }}>
+      <div className="grade g-2" style={{ alignItems: "stretch" }}>
         <Fontes chamar={chamar} arquivos={arquivos} aoMudar={carregarArquivos} />
         <NovaExecucao chamar={chamar} arquivos={arquivos} nos={nos?.nos ?? []} aoCriar={setSelecionada} />
       </div>
@@ -175,7 +176,7 @@ function Fontes({ chamar, arquivos, aoMudar }: { chamar: Chamar; arquivos: Arqui
   };
 
   return (
-    <div className="cartao" style={{ display: "grid", gap: 20 }}>
+    <div className="cartao" style={{ display: "grid", gap: 20, alignContent: "start" }}>
       <div>
         <h2 className="titulo t-3" style={{ fontWeight: 500 }}>Fontes <em style={{ color: "var(--suave)" }}>Bronze</em></h2>
         <p className="suave" style={{ fontSize: 14, margin: "6px 0 0" }}>Baixa a planilha da Prefeitura e guarda o original. Não processa nada.</p>

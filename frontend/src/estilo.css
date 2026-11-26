@@ -244,3 +244,14 @@ input[type="range"] { width: 100%; accent-color: var(--destaque); height: 6px; }
 .previa { display: block; transition: transform .2s; }
 .previa:hover { transform: translateY(-2px); }
 .previa, .previa:hover { text-decoration: none; }
+
+/* Esteira do cluster: registros recém-limpos entram pelo topo. */
+.esteira { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; max-height: 560px; overflow-y: auto; }
+.esteira > li { background: var(--fundo-campo); border-radius: var(--raio-controle); padding: 14px 18px; animation: entra-esteira .4s ease-out; min-width: 0; }
+.esteira-cabeca { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.esteira-endereco { flex: 1; min-width: 180px; overflow-wrap: anywhere; }
+.esteira-meta { font-size: 13px; }
+.esteira-mudancas { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 4px; font: 400 13px/1.6 var(--mono); overflow-wrap: anywhere; }
+.esteira-mudancas s { color: var(--apagado); }
+@keyframes entra-esteira { from { opacity: 0; transform: translateY(-8px); } }
+@media (prefers-reduced-motion: reduce) { .esteira > li { animation: none; } }

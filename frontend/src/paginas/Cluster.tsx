@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import { api, type EstadoCluster, type EventoLog, type NoCluster } from "../api";
+import { api, type EstadoCluster, type EventoLog, type ItemEsteira, type NoCluster } from "../api";
 import { Contador, PlacaEsp32, Rodape, Topo, usePeriodico } from "../componentes/comuns";
-import { haQuanto, hora, numero } from "../formato";
+import { haQuanto, hora, nomeProprio, numero, reais } from "../formato";
 
 const INTERVALO_MS = 2000;
 const TRABALHANDO = new Set(["recebendo", "processando", "publicando"]);
@@ -144,6 +144,8 @@ export default function Cluster() {
             </pre>
           </div>
         </div>
+        <Esteira itens={c?.esteira ?? []} carregado={!!c} />
+
         <p className="suave" style={{ fontSize: 14, marginTop: 28 }}>
           Dados lidos da API (<span className="mono">/cluster</span>) a cada {INTERVALO_MS / 1000} s. Para iniciar cargas, use o <Link to="/painel" className="alta">painel de controle</Link>.
         </p>
@@ -161,4 +163,55 @@ function Kpi({ nome, valor, nota }: { nome: string; valor: React.ReactNode; nota
       {nota && <div className="nota" style={{ fontSize: 13 }}>{nota}</div>}
     </div>
   );
+}
+
+/** Esteira: os últimos registros devolvidos pelos nós, com o que a limpeza mudou em cada um. */
+function Esteira({ itens, carregado }: { itens: ItemEsteira[]; carregado: boolean }) {
+  return (
+    <section className="cartao" style={{ marginTop: 20 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "baseline", gap: 12, marginBottom: 20 }}>
+        <h2 className="titulo t-3" style={{ fontWeight: 500, fontSize: 26, margin: 0 }}>Esteira de <em style={{ color: "var(--texto)" }}>registros</em></h2>
+        <span className="suave" style={{ fontSize: 14 }}>Últimos {itens.length || ""} registros limpos pelos nós · campo: <s>antes</s> → depois</span>
+      </div>
+      {carregado && itens.length === 0 && <p className="suave" style={{ margin: 0 }}>Nenhum registro processado ainda.</p>}
+      <ol className="esteira">
+        {itens.map((r) => {
+          const endereco = [nomeProprio(r.logradouro), r.numero].filter(Boolean).join(", ");
+          const valor = r.valor_transacao != null && !isNaN(Number(r.valor_transacao)) ? reais(Number(r.valor_transacao)) : r.valor_transacao;
+          return (
+            <li key={r.id}>
+              <div className="esteira-cabeca">
+                <span className="chip">{r.no_id}</span>
+                <span className="esteira-endereco">{endereco || "—"}{r.bairro && <span className="suave"> · {nomeProprio(r.bairro)}</span>}</span>
+                {valor && <span className="mono">{valor}</span>}
+                <span className="mono suave esteira-meta">
+                  {r.aba} · linha {r.linha}{r.duracao_us != null && ` · ${numero(r.duracao_us / 1000, 1)} ms`} · {hora(r.recebido_em)}
+                </span>
+              </div>
+              {(r.mudancas.length > 0 || r.erros.length > 0) && (
+                <ul className="esteira-mudancas">
+                  {r.mudancas.map((m) => (
+                    <li key={m.campo}>
+                      <span className="suave">{m.campo}:</span> <s>{visivel(m.antes)}</s> → <span className="alta">{visivel(m.depois)}</span>
+                    </li>
+                  ))}
+                  {r.erros.map((e, i) => (
+                    <li key={`erro-${i}`} className="alerta">⚠ {e.campo}: {e.motivo}</li>
+                  ))}
+                </ul>
+              )}
+              {r.mudancas.length === 0 && r.erros.length === 0 && <p className="suave mono" style={{ fontSize: 13, margin: "8px 0 0" }}>sem alterações</p>}
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+/** Mostra espaços nas pontas e valores vazios, que são justamente o que a limpeza costuma corrigir. */
+function visivel(v: string | null): string {
+  if (v == null) return "∅";
+  if (v === "") return "\"\"";
+  return v.replace(/^ +| +$/g, (m) => "·".repeat(m.length));
 }

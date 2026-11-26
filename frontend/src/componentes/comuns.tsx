@@ -17,7 +17,8 @@ export function Logo() {
   );
 }
 
-export function Topo({ links = [], acao }: { links?: [string, string][]; acao?: ReactNode }) {
+/** Cabeçalho das páginas. `entrar` mostra o acesso ao login do painel (desligado no próprio painel). */
+export function Topo({ links = [], acao, entrar = true }: { links?: [string, string][]; acao?: ReactNode; entrar?: boolean }) {
   return (
     <header className="topo">
       <div className="conteudo">
@@ -31,7 +32,10 @@ export function Topo({ links = [], acao }: { links?: [string, string][]; acao?: 
             ),
           )}
         </nav>
-        <div className="acoes">{acao}</div>
+        <div className="acoes">
+          {entrar && <Link to="/login" className="botao contorno pequeno">Entrar</Link>}
+          {acao}
+        </div>
       </div>
     </header>
   );
@@ -75,7 +79,7 @@ export function Contador({ valor, formatar }: { valor: number | null | undefined
     const de = anterior.current, inicio = performance.now(), duracao = 900;
     let quadro = 0;
     const passo = (agora: number) => {
-      const t = Math.min(1, (agora - inicio) / duracao);
+      const t = Math.min(1, Math.max(0, (agora - inicio) / duracao));
       setMostrado(de + (valor - de) * (1 - Math.pow(1 - t, 3)));
       if (t < 1) quadro = requestAnimationFrame(passo);
       else anterior.current = valor;
